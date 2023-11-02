@@ -17,7 +17,6 @@ limitations under the License.
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -32,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/admission"
 	"k8s.io/apiserver/pkg/audit"
+	"k8s.io/apiserver/pkg/endpoints/filters"
 	"k8s.io/apiserver/pkg/endpoints/handlers/finisher"
 	"k8s.io/apiserver/pkg/endpoints/handlers/negotiation"
 	"k8s.io/apiserver/pkg/endpoints/request"
@@ -63,7 +63,7 @@ func DeleteResource(r rest.GracefulDeleter, allowsOptions bool, scope *RequestSc
 
 		// enforce a timeout of at most requestTimeoutUpperBound (34s) or less if the user-provided
 		// timeout inside the parent context is lower than requestTimeoutUpperBound.
-		ctx, cancel := context.WithTimeout(req.Context(), requestTimeoutUpperBound)
+		ctx, cancel := filters.RequestContextWithUpperBoundOrWorkAroundOurBrokenCaseWhereTimeoutWasNotAppliedYet(req, requestTimeoutUpperBound)
 		defer cancel()
 
 		ctx = request.WithNamespace(ctx, namespace)
@@ -183,10 +183,12 @@ func DeleteCollection(r rest.CollectionDeleter, checkBody bool, scope *RequestSc
 			return
 		}
 
-		// DELETECOLLECTION can be a lengthy operation,
-		// we should not impose any 34s timeout here.
-		// NOTE: This is similar to LIST which does not enforce a 34s timeout.
-		ctx := request.WithNamespace(req.Context(), namespace)
+		// enforce a timeout of at most requestTimeoutUpperBound (34s) or less if the user-provided
+		// timeout inside the parent context is lower than requestTimeoutUpperBound.
+		ctx, cancel := filters.RequestContextWithUpperBoundOrWorkAroundOurBrokenCaseWhereTimeoutWasNotAppliedYet(req, requestTimeoutUpperBound)
+		defer cancel()
+
+		ctx = request.WithNamespace(ctx, namespace)
 
 		outputMediaType, _, err := negotiation.NegotiateOutputMediaType(req, scope.Serializer, scope)
 		if err != nil {
